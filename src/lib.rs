@@ -3,7 +3,6 @@ use nom::bytes::complete::{is_a, tag_no_case, take_till, take_till1, take_until,
 use nom::character::complete::{alpha1, anychar, line_ending};
 use nom::combinator::{eof, not};
 use nom::multi::many0;
-use nom::multi::many1;
 use nom::sequence::tuple;
 use nom::{
     bytes::complete::{is_not, tag},
@@ -234,10 +233,6 @@ fn test_psql_if() {
     assert!(psql_if(r"\if").is_err());
 }
 
-// COPY ... FROM STDIN
-// \copy ... FROM stdin / pstdin
-// just use regexes
-
 fn inline_stdin_delim(input: &str) -> IResult<&str, &str> {
     let (rest, _) = line_ending(input)?;
     let (rest, _) = tag("\\.")(rest)?;
@@ -260,10 +255,6 @@ fn inline_stdin(input: &str) -> IResult<&str, &str> {
             }
         }
     }
-    // recognize(tuple((line_ending, tag("."), alt((line_ending, eof)))))(input)?
-    // let (rest, inline) = take_until("\n\\.\n")(input)?;
-    // let (rest, delim) = tag("\n\\.\n")(rest)?;
-    // return Ok((rest, &input[..inline.len() + delim.len()]));
 }
 
 fn sql_copy_from_stdin(input: &str) -> IResult<&str, &str> {
@@ -283,11 +274,7 @@ fn sql_copy_from_stdin(input: &str) -> IResult<&str, &str> {
     let mut parser = alt((
         is_a(" \t\r\n"),
         parenthetical,
-        c_style_comment,
-        line_comment,
-        single_quote_string,
-        double_quote_string,
-        dollar_quote_string,
+        string_or_comment,
         take_till1(|c| match c {
             '\'' | '(' | '\"' | '/' | '-' | '$' | ';' => true,
             _ => false,
@@ -327,9 +314,12 @@ fn sql_copy_from_stdin(input: &str) -> IResult<&str, &str> {
         if statements.len() == 0 {
             rest = r;
         } else {
-            // strip leading whitespace
-            let (last, _) = opt(is_a(" \t\r\n"))(*statements.last().unwrap())?;
-            if sql_copy_from_stdin(last).is_err() && psql_copy_from_stdin(last).is_err() {
+            // strip leading whitespace & comments
+            let (last, _) = many0(alt((is_a(" \t\r\n"), line_comment, c_style_comment)))(
+                *statements.last().unwrap(),
+            )?;
+            let is_err = sql_copy_from_stdin(last).is_err();
+            if is_err && psql_copy_from_stdin(last).is_err() {
                 rest = r;
             }
         }
@@ -345,7 +335,8 @@ fn sql_copy_from_stdin(input: &str) -> IResult<&str, &str> {
     } else {
         rest = r;
     }
-    return Ok((rest, &input[..input.len() - rest.len()]));
+    let result = &input[..input.len() - rest.len()];
+    return Ok((rest, result));
 }
 
 fn psql_copy_from_stdin(input: &str) -> IResult<&str, &str> {
@@ -379,32 +370,32 @@ fn test_sql_copy_from_stdin() {
 
 pub fn statement(input: &str) -> IResult<&str, &str> {
     let (mut rest, _) = not(eof)(input)?;
-    let mut parser = alt((
+    let mut not_statement = alt((
         is_a(" \t\r\n"),
         psql_if, // complete statement?
         string_or_comment,
         // is_not("\\c\'\"$/-;"),
         // TODO: replace with is_not()?
         take_till1(|c| match c {
-            '\\' | 'c' | '\'' | '"' | '$' | '/' | '-' | ';' => return true,
+            '\\' | 'c' | 'C' | '\'' | '"' | '$' | '/' | '-' | ';' => return true,
             _ => return false,
         }),
     ));
+    let mut statement_terminator = alt((
+        psql_meta_cmd,
+        psql_copy_from_stdin,
+        sql_copy_from_stdin,
+        tag(";"),
+    ));
     'outer: loop {
         'inner: loop {
-            if let Ok((r, _)) = parser(rest) {
+            if let Ok((r, _)) = not_statement(rest) {
                 rest = r;
             } else {
                 break 'inner;
             }
         }
-        if let Ok((r, _)) = alt((
-            psql_meta_cmd,
-            psql_copy_from_stdin,
-            sql_copy_from_stdin,
-            tag(";"),
-        ))(rest)
-        {
+        if let Ok((r, _)) = statement_terminator(rest) {
             rest = r;
             break 'outer;
         } else if rest == "" {
@@ -439,6 +430,11 @@ fn test_statement() {
     let with_comment = "select 1; -- get a number";
     assert_eq!(statement(with_comment), Ok(("", with_comment)));
     assert_eq!(statement(";"), Ok(("", ";")));
+    let what = "COPY instead_of_insert_tbl_view_2 FROM stdin;
+test1
+\\.
+";
+    assert_eq!(statement(what), Ok(("", what)));
     // assert!(statement(
     //     "\n    copy bar from stdin;
     // arbitrary, text\n\\."
