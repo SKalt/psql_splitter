@@ -176,10 +176,17 @@ fn psql_meta_cmd(input: &str) -> IResult<&str, &str> {
     return Ok((rest, &input[..1 + a.len() + line.len() + eol.len()]));
 }
 
+fn comment(input: &str) -> IResult<&str, &str> {
+    return alt((c_style_comment, line_comment))(input);
+}
+
+fn comment_or_whitespace(input: &str) -> IResult<&str, &str> {
+    return alt((is_a(" \t\r\n"), comment))(input);
+}
+
 fn string_or_comment(input: &str) -> IResult<&str, &str> {
     alt((
-        c_style_comment,
-        line_comment,
+        comment,
         single_quote_string,
         double_quote_string,
         dollar_quote_string,
@@ -384,33 +391,47 @@ fn test_sql_copy_from_stdin() {
 }
 
 pub fn statement(input: &str) -> IResult<&str, &str> {
-    let (mut rest, _) = not(eof)(input)?;
-    let mut not_statement = alt((is_a(" \t\r\n"), string_or_comment, is_not(r#"cC'"$\/-;"#)));
-    let mut statement_terminator = alt((
+    let (rest, _) = not(eof)(input)?;
+    // strio leading whitespace and comments
+    let (mut rest, _) = many0(comment_or_whitespace)(rest)?;
+
+    let mut complete_statement = alt((
         psql_if,
-        psql_meta_cmd,
         psql_copy_from_stdin,
         sql_copy_from_stdin,
-        tag(";"),
+        psql_meta_cmd,
     ));
-    'outer: loop {
-        'inner: loop {
-            if let Ok((r, _)) = not_statement(rest) {
+    let mut statement_part = alt((
+        is_a(" \t\r\n"),
+        string_or_comment,
+        psql_if,
+        is_not(r#"'"$\/-;"#),
+    ));
+    let mut statement_terminator = alt((psql_meta_cmd, tag(";")));
+
+    if let Ok((r, _)) = complete_statement(rest) {
+        rest = r;
+    } else {
+        'outer: loop {
+            'inner: loop {
+                if let Ok((r, _)) = statement_part(rest) {
+                    rest = r;
+                } else {
+                    break 'inner;
+                }
+            }
+            if let Ok((r, _)) = statement_terminator(rest) {
                 rest = r;
+                break 'outer;
+            } else if rest == "" {
+                break;
             } else {
-                break 'inner;
+                let (r, _) = recognize(anychar)(rest)?;
+                rest = r;
             }
         }
-        if let Ok((r, _)) = statement_terminator(rest) {
-            rest = r;
-            break 'outer;
-        } else if rest == "" {
-            break;
-        } else {
-            let (r, _) = recognize(anychar)(rest)?;
-            rest = r;
-        }
     }
+
     // consume any trailing line-comments and newlines
     let (mut rest, _) = opt(is_a(" \t"))(rest)?;
     if let Ok((r, _)) = line_comment(rest) {
@@ -498,4 +519,6 @@ COPY x (a, b, c, d, e, d, c) from stdin;\n\n",
             &psql_if_example[..psql_if_example.len() - expected_remainder.len()]
         ))
     );
+    let inline_if = include_str!("./inline_if.sql");
+    assert_eq!(statement(inline_if), Ok(("", inline_if)));
 }
