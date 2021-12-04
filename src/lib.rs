@@ -297,11 +297,8 @@ fn sql_copy_from_stdin(input: &str) -> IResult<&str, &str> {
     }
     let (r, inline) = recognize(opt(inline_stdin))(rest)?;
 
-    // heuristic: check if something like "copy from stdin" could be part of the inline stdin
-    if inline.len() > 0
-        && (inline.contains("copy") || inline.contains("COPY"))
-        && (inline.contains("stdin") || inline.contains("STDIN"))
-    {
+    // heuristic: check if another statement could be part of the inline stdin
+    if inline.len() > 0 && (inline.contains(";")) {
         // many0 and many1(statement) are inexplicably failing me
         let mut statements = vec![];
         let mut inline_input = inline;
