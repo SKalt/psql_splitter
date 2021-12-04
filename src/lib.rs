@@ -497,4 +497,14 @@ COPY x (a, b, c, d, e, d, c) from stdin;\n\n",
     let expected = "
     copy foo to stdout;\n";
     assert_eq!(statement(run_on), Ok((&run_on[expected.len()..], expected)));
+    let psql_if_example = include_str!("./if_basics.sql");
+    let expected_remainder =
+        "-- at this point query buffer should still have last valid line\n\\g\n";
+    assert_eq!(
+        statement(psql_if_example),
+        Ok((
+            expected_remainder,
+            &psql_if_example[..psql_if_example.len() - expected_remainder.len()]
+        ))
+    );
 }
