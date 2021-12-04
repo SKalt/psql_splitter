@@ -385,16 +385,7 @@ fn test_sql_copy_from_stdin() {
 
 pub fn statement(input: &str) -> IResult<&str, &str> {
     let (mut rest, _) = not(eof)(input)?;
-    let mut not_statement = alt((
-        is_a(" \t\r\n"),
-        string_or_comment,
-        // is_not("\\c\'\"$/-;"),
-        // TODO: replace with is_not()?
-        take_till1(|c| match c {
-            '\\' | 'c' | 'C' | '\'' | '"' | '$' | '/' | '-' | ';' => return true,
-            _ => return false,
-        }),
-    ));
+    let mut not_statement = alt((is_a(" \t\r\n"), string_or_comment, is_not(r#"cC'"$\/-;"#)));
     let mut statement_terminator = alt((
         psql_if,
         psql_meta_cmd,
