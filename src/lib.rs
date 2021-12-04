@@ -1,12 +1,10 @@
 use nom::multi::many1;
 use nom::branch::alt;
 use nom::bytes::complete::{
-    is_a, tag_no_case, take_till, take_till1, take_until, take_until1, take_while,
+    is_a, tag_no_case, take_till, take_till1, take_until, take_until1,
 };
 use nom::character::complete::{alpha1, anychar, line_ending};
-use nom::character::is_space;
 use nom::combinator::eof;
-use nom::error::Error;
 use nom::multi::many0;
 use nom::sequence::tuple;
 use nom::{
