@@ -310,7 +310,7 @@ fn sql_copy_from_stdin(input: &str) -> IResult<&str, &str> {
         && (inline.contains("stdin") || inline.contains("STDIN"))
     {
         let (m, statements) = many1(statement)(inline)?;
-        assert_eq!(m.len(), 0usize);
+        assert_eq!(m.len(), 0usize, "not consumed: >>>{}<<<", m);
         if statements.len() == 0 {
             rest = r;
         } else {

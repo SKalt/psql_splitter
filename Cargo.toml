@@ -1,5 +1,5 @@
 [package]
-name = "splitter"
+name = "psql_splitter"
 version = "0.1.0"
 authors = ["Steven Kalt <kalt.steven@gmail.com>"]
 edition = "2018"
