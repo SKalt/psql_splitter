@@ -258,7 +258,8 @@ fn inline_stdin(input: &str) -> IResult<&str, &str> {
 }
 
 fn sql_copy_from_stdin(input: &str) -> IResult<&str, &str> {
-    let (mut rest, _) = tag_no_case("copy")(input)?;
+    let (rest, _) = tag_no_case("copy")(input)?;
+    let (mut rest, _) = is_a(" \t\r\n")(rest)?;
     loop {
         if rest.len() == 0
             || tag_no_case::<&str, &str, nom::error::Error<&str>>("from")(rest).is_ok()
@@ -419,6 +420,9 @@ pub fn statement(input: &str) -> IResult<&str, &str> {
 
 #[test]
 fn test_statement() {
+    let weird = include_str!("./weird.sql");
+    let expected = "GRANT SELECT ON TABLE rls_t1 TO regress_rls_copy_user;\n";
+    assert_eq!(statement(weird), Ok((&weird[expected.len()..], expected)));
     let with_start_space = "
     select 1;";
     assert_eq!(statement(with_start_space), Ok(("", with_start_space)));
