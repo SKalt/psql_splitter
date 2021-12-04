@@ -188,24 +188,32 @@ fn string_or_comment(input: &str) -> IResult<&str, &str> {
 
 fn psql_if(input: &str) -> IResult<&str, &str> {
     // TODO: watch out for strings, comments
-    let (mut rest, start) = tag(r"\if")(input)?;
-    let mut mid_size = 0usize;
+    let (mut rest, _) = tag(r"\if")(input)?;
     loop {
-        if let Ok((r, mid)) = recognize(tuple((take_until(r"\if"), psql_if)))(rest) {
+        if let Ok((r, _)) = recognize(tuple((take_until(r"\if"), psql_if)))(rest) {
             rest = r;
-            mid_size += mid.len();
-        } else if let Ok((r, mid)) =
+        } else if let Ok((r, _)) =
             take_until::<&str, &str, nom::error::Error<&str>>(r"\endif")(rest)
         {
             rest = r;
-            mid_size += mid.len();
             break;
         } else {
             break; // let tag raise the error
         }
     }
-    let (rest, end) = tag(r"\endif")(rest)?;
-    return Ok((rest, &input[..start.len() + mid_size + end.len()]));
+    let (mut rest, _) = tag(r"\endif")(rest)?;
+    // eat the rest of the line
+    loop {
+        if rest.len() == 0usize {
+            break;
+        } else if let Ok((r, _)) = line_ending::<&str, nom::error::Error<&str>>(rest) {
+            rest = r;
+            break;
+        } else {
+            rest = &rest[1..];
+        }
+    }
+    return Ok((rest, &input[..input.len() - rest.len()]));
 }
 
 #[test]
@@ -379,7 +387,6 @@ pub fn statement(input: &str) -> IResult<&str, &str> {
     let (mut rest, _) = not(eof)(input)?;
     let mut not_statement = alt((
         is_a(" \t\r\n"),
-        psql_if, // complete statement?
         string_or_comment,
         // is_not("\\c\'\"$/-;"),
         // TODO: replace with is_not()?
@@ -389,6 +396,7 @@ pub fn statement(input: &str) -> IResult<&str, &str> {
         }),
     ));
     let mut statement_terminator = alt((
+        psql_if,
         psql_meta_cmd,
         psql_copy_from_stdin,
         sql_copy_from_stdin,
