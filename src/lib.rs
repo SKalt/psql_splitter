@@ -169,10 +169,16 @@ fn test_line_comment() {
 
 fn psql_meta_cmd(input: &str) -> IResult<&str, &str> {
     let (rest, _) = tag("\\")(input)?;
-    let (rest, a) = alpha1(rest)?;
-    let (rest, line) = take_until("\n")(rest)?;
-    let (rest, eol) = line_ending(rest)?;
-    return Ok((rest, &input[..1 + a.len() + line.len() + eol.len()]));
+    let (mut rest, _) = alpha1(rest)?;
+    loop {
+        if let Ok((r, _)) = line_ending::<&str, nom::error::Error<&str>>(rest) {
+            rest = r;
+            break;
+        } else if rest == "" {
+            break;
+        }
+    }
+    return Ok((rest, &input[..input.len() - rest.len()]));
 }
 
 fn comment(input: &str) -> IResult<&str, &str> {
@@ -529,4 +535,42 @@ fn test_statement() {
     //     assert_eq!(statement(inline_if), Ok(("", inline_if)));
     let large_nested = include_str!("./large_nested_if.sql");
     assert_eq!(statement(large_nested), Ok(("", large_nested)));
+}
+
+/// doesn't speak `:variable`s yet
+/// note the argument must be a complete statement
+pub fn is_psql(statement: &str) -> bool {
+    let mut rest = statement;
+    let mut complete_psql_statement = alt((
+        psql_if,
+        psql_copy_from_stdin,
+        sql_copy_from_stdin,
+        psql_meta_cmd,
+    ));
+    let mut statement_part = alt((is_a(" \t\r\n"), string_or_comment, is_not(r#"'"$\/-;"#)));
+
+    if let Ok(_) = complete_psql_statement(rest) {
+        return true;
+    }
+
+    loop {
+        if rest == "" {
+            return false;
+        } else if rest.starts_with(";") {
+            return false;
+        } else if let Ok(_) = psql_meta_cmd(rest) {
+            return true;
+        } else if let Ok((r, _)) = statement_part(rest) {
+            rest = r;
+        } else {
+            rest = &rest[1..];
+        }
+    }
+}
+
+#[test]
+fn test_is_psql() {
+    assert!(is_psql(r"select 1 as foo \gset"));
+    assert!(!is_psql("select 1;"));
+    assert!(is_psql("copy foo from stdin;\n\\.\n"));
 }
