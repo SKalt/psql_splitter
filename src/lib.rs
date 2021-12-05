@@ -194,32 +194,27 @@ fn string_or_comment(input: &str) -> IResult<&str, &str> {
 }
 
 fn psql_if(input: &str) -> IResult<&str, &str> {
-    // TODO: watch out for strings, comments
     let (mut rest, _) = tag(r"\if")(input)?;
     loop {
-        if let Ok((r, _)) = recognize(tuple((take_until(r"\if"), psql_if)))(rest) {
-            rest = r;
-        } else if let Ok((r, _)) =
-            take_until::<&str, &str, nom::error::Error<&str>>(r"\endif")(rest)
-        {
-            rest = r;
-            break;
-        } else {
-            break; // let tag raise the error
+        // consume whitespace, strings, comments
+        if let Ok((r, _)) = alt((string_or_comment, is_a(" \t\r\n")))(rest) {
+            rest = r
         }
-    }
-    let (mut rest, _) = tag(r"\endif")(rest)?;
-    // eat the rest of the line
-    loop {
-        if rest.len() == 0usize {
-            break;
-        } else if let Ok((r, _)) = line_ending::<&str, nom::error::Error<&str>>(rest) {
+        if rest.len() == 0 {
+            let _ = tag(r"\elif")(rest)?; // let the tag raise the error
+        } else if let Ok((r, _)) = psql_if(rest) {
+            // handle nested \if..\endif clauses
+            rest = r;
+        } else if let Ok((r, _)) = tag::<&str, &str, nom::error::Error<&str>>(r"\endif")(rest) {
+            // match a closing \endif tag and break
             rest = r;
             break;
         } else {
+            // consume a character and try again
             rest = &rest[1..];
         }
     }
+    // `statement` will handle eating the rest of the line if appropriate
     return Ok((rest, &input[..input.len() - rest.len()]));
 }
 
@@ -403,8 +398,8 @@ pub fn statement(input: &str) -> IResult<&str, &str> {
     ));
     let mut statement_part = alt((
         is_a(" \t\r\n"),
-        string_or_comment,
         psql_if,
+        string_or_comment,
         is_not(r#"'"$\/-;"#),
     ));
     let mut statement_terminator = alt((psql_meta_cmd, tag(";")));
