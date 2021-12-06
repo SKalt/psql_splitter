@@ -176,6 +176,8 @@ fn psql_meta_cmd(input: &str) -> IResult<&str, &str> {
             break;
         } else if rest == "" {
             break;
+        } else {
+            rest = &rest[1..];
         }
     }
     return Ok((rest, &input[..input.len() - rest.len()]));
