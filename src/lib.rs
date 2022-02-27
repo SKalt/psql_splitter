@@ -183,11 +183,11 @@ fn psql_meta_cmd(input: &str) -> IResult<&str, &str> {
     return Ok((rest, &input[..input.len() - rest.len()]));
 }
 
-fn comment(input: &str) -> IResult<&str, &str> {
+pub fn comment(input: &str) -> IResult<&str, &str> {
     return alt((c_style_comment, line_comment))(input);
 }
 
-fn comment_or_whitespace(input: &str) -> IResult<&str, &str> {
+pub fn comment_or_whitespace(input: &str) -> IResult<&str, &str> {
     return alt((is_a(" \t\r\n"), comment))(input);
 }
 
@@ -575,4 +575,17 @@ fn test_is_psql() {
     assert!(is_psql(r"select 1 as foo \gset"));
     assert!(!is_psql("select 1;"));
     assert!(is_psql("copy foo from stdin;\n\\.\n"));
+}
+
+#[test]
+fn statement_integration_test_psql() {
+    let psql = include_str!("./regress_psql.sql");
+    let mut rest = psql;
+    let mut statements: Vec<&str> = vec![];
+    while let Ok((r, m)) = statement(rest) {
+        statements.push(m);
+        rest = r;
+    }
+    assert_eq!(rest, "");
+    assert_eq!(psql, statements.join("").as_str());
 }
